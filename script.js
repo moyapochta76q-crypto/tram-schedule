@@ -2,6 +2,7 @@ let scheduleData = [];
 let allTrams = new Map();
 
 const stopDictionary = {
+    // Маршрут 6
     'серебрянка': 'Серебрянка',
     'поликлиника': 'Поликлиника 18',
     'партизанская': 'ст.м. Партизанская',
@@ -11,7 +12,16 @@ const stopDictionary = {
     'волгоградская': 'Волгоградская',
     'зелёный луг': 'Зелёный Луг',
     'зеленый луг': 'Зелёный Луг',
-    'парк': 'Парк'
+    'парк': 'Парк',
+    // Другие маршруты
+    'мясникова': 'пл. Мясникова',
+    'пл. мясникова': 'пл. Мясникова',
+    'динамо': 'Стадион "Динамо"',
+    'стадион': 'Стадион "Динамо"',
+    'озеро': 'Озеро',
+    'куйбышева': 'Куйбышева',
+    'рокоссовского': 'просп. Рокоссовского',
+    'немига': 'Немига'
 };
 
 function normalizeStopName(name) {
@@ -22,7 +32,10 @@ function normalizeStopName(name) {
             return value;
         }
     }
-    return name.charAt(0).toUpperCase() + name.slice(1);
+    if (name.length > 2) {
+        return name.charAt(0).toUpperCase() + name.slice(1);
+    }
+    return '';
 }
 
 async function processFiles() {
@@ -85,7 +98,7 @@ function processExcelFile(file) {
                     const sheet = workbook.Sheets[sheetName];
                     const jsonData = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: '', raw: false});
                     console.log('Лист "' + sheetName + '" содержит ' + jsonData.length + ' строк');
-                    parseScheduleData(jsonData, file.name + ' [' + sheetName + ']');
+                    parseScheduleData(jsonData, sheetName);
                 });
                 
                 resolve();
@@ -113,12 +126,10 @@ async function processImageFile(file) {
                 if (m.status === 'recognizing text') {
                     showStatus('Распознавание: ' + Math.round(m.progress * 100) + '%', 'loading');
                 }
-                console.log('OCR прогресс:', m);
             }
         });
         const text = result.data.text;
         console.log('OCR завершён, распознано символов:', text.length);
-        console.log('Распознанный текст:', text);
         const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
         const tableData = lines.map(line => line.split(/\s{2,}|\t/).map(c => c.trim()).filter(c => c));
         parseScheduleData(tableData, file.name);
@@ -130,13 +141,8 @@ async function processImageFile(file) {
 
 function parseScheduleData(data, fileName) {
     console.log('\n===========================================');
-    console.log('ПАРСИНГ ФАЙЛА:', fileName);
+    console.log('ПАРСИНГ:', fileName);
     console.log('ВСЕГО СТРОК:', data.length);
-    console.log('ПЕРВЫЕ 25 СТРОК:');
-    data.slice(0, 25).forEach((row, i) => {
-        console.log('Строка ' + i + ':', row);
-    });
-    console.log('===========================================\n');
     
     let routeNumber = '';
     let tripNumber = '';
@@ -147,14 +153,15 @@ function parseScheduleData(data, fileName) {
         const row = data[i];
         if (!row || row.length === 0) continue;
         const rowText = row.join(' ');
-        console.log('Анализ строки ' + i + ': "' + rowText + '"');
         
+        // Ищем "Маршрут 1" или "Расписание маршрута: 6"
         const routeMatch = rowText.match(/маршрут[:\s]*(\d+)/i);
         if (routeMatch) {
             routeNumber = routeMatch[1];
             console.log('✓ Найден маршрут: ' + routeNumber);
         }
         
+        // Ищем "NZA 6-01"
         const tripMatch = rowText.match(/NZA\s*(\d+)-(\d+)/i);
         if (tripMatch) {
             routeNumber = tripMatch[1];
@@ -162,35 +169,34 @@ function parseScheduleData(data, fileName) {
             console.log('✓ Найден NZA: маршрут ' + routeNumber + ', выезд ' + tripNumber);
         }
         
-        const stopKeywords = ['парк', 'серебрянка', 'поликлиника', 'партизанская', 'уральская', 'бядули', 'волгоградская', 'зелёный', 'зеленый'];
-        let stopCount = 0;
+        // Ищем строку с остановками (содержит "Парк" или много ячеек с текстом)
+        let textCellCount = 0;
         row.forEach(cell => {
-            const cellLower = String(cell).toLowerCase();
-            if (stopKeywords.some(kw => cellLower.includes(kw))) {
-                stopCount++;
+            const cellStr = String(cell).trim();
+            if (cellStr.length > 2 && !cellStr.match(/^\d/) && cellStr !== '.....') {
+                textCellCount++;
             }
         });
         
-        if (stopCount >= 4) {
+        if (textCellCount >= 6 && headerRowIndex === -1) {
             headerRowIndex = i;
-            stops = row.map(s => normalizeStopName(String(s).trim())).filter(s => s && s !== '.....' && s.length > 1);
+            stops = row.map(s => normalizeStopName(String(s).trim())).filter(s => s && s.length > 1);
             console.log('✓ НАЙДЕНА СТРОКА С ОСТАНОВКАМИ (строка ' + i + '), остановок: ' + stops.length);
             console.log('Остановки:', stops);
-            break;
         }
     }
     
     if (!routeNumber) {
-        console.warn('⚠ НЕ НАЙДЕН номер маршрута');
+        console.warn('⚠ НЕ НАЙДЕН номер маршрута в ' + fileName);
+        return;
     }
     if (headerRowIndex === -1) {
-        console.error('✗ НЕ НАЙДЕНА строка с остановками!');
+        console.error('✗ НЕ НАЙДЕНА строка с остановками в ' + fileName);
         return;
     }
     
     const tramId = routeNumber + '-' + (tripNumber || 'XX');
-    console.log('\nID вагона: ' + tramId);
-    console.log('Начинаем парсить рейсы с строки ' + (headerRowIndex + 1) + '...\n');
+    console.log('ID вагона: ' + tramId);
     
     let tripCounter = 1;
     let totalRecords = 0;
@@ -203,7 +209,6 @@ function parseScheduleData(data, fileName) {
         if (rowText.includes('выезд') || rowText.includes('заезд') || 
             rowText.includes('начало') || rowText.includes('конец') ||
             rowText.includes('действительно') || rowText.includes('смена')) {
-            console.log('Пропуск служебной строки ' + i + ': ' + rowText.substring(0, 50));
             continue;
         }
         
@@ -217,11 +222,13 @@ function parseScheduleData(data, fileName) {
             const cellStr = String(cell).trim();
             if (cellStr.match(/^\d{1,2}:\d{2}$/)) {
                 const stopIndex = Math.min(colIndex, stops.length - 1);
-                times.push({
-                    stop: stops[stopIndex],
-                    time: cellStr,
-                    colIndex: colIndex
-                });
+                if (stops[stopIndex]) {
+                    times.push({
+                        stop: stops[stopIndex],
+                        time: cellStr,
+                        colIndex: colIndex
+                    });
+                }
             }
         });
         
@@ -230,7 +237,6 @@ function parseScheduleData(data, fileName) {
             const lastCol = times[times.length - 1].colIndex;
             const direction = firstCol < lastCol ? 'Прямое (А)' : 'Обратное (Б)';
             const tripId = tramId + '-trip' + tripCounter;
-            console.log('Рейс ' + tripCounter + ': ' + times.length + ' остановок, направление: ' + direction);
             
             times.forEach(t => {
                 const timeObj = parseTime(t.time);
@@ -254,18 +260,15 @@ function parseScheduleData(data, fileName) {
         }
     }
     
-    console.log('\n✓ ИТОГО для ' + fileName + ':');
-    console.log('  Рейсов: ' + (tripCounter - 1));
-    console.log('  Записей: ' + totalRecords);
+    console.log('✓ ИТОГО для ' + fileName + ': рейсов ' + (tripCounter - 1) + ', записей ' + totalRecords);
     
-    if (!allTrams.has(tramId)) {
+    if (totalRecords > 0) {
         allTrams.set(tramId, {
             route: routeNumber,
             trip: tripNumber,
-            tripsCount: 0
+            tripsCount: tripCounter - 1
         });
     }
-    allTrams.get(tramId).tripsCount = tripCounter - 1;
 }
 
 function parseTime(timeStr) {
@@ -284,26 +287,68 @@ function parseTime(timeStr) {
 
 function displayResults() {
     document.getElementById('resultsSection').style.display = 'block';
-    let tableHTML = '<div style="margin-bottom: 20px; padding: 15px; background: #e7f3ff; border-radius: 5px;">';
-    tableHTML += '<strong>Загружено вагонов:</strong> ' + allTrams.size + '<br>';
-    Array.from(allTrams.entries()).forEach(([id, info]) => {
-        tableHTML += 'Маршрут ' + info.route + ', выезд ' + info.trip + ': ' + info.tripsCount + ' рейсов<br>';
+    
+    // Сортируем вагоны по маршруту и номеру выезда
+    const sortedTrams = Array.from(allTrams.entries()).sort((a, b) => {
+        const routeA = parseInt(a[1].route) || 0;
+        const routeB = parseInt(b[1].route) || 0;
+        if (routeA !== routeB) return routeA - routeB;
+        const tripA = parseInt(a[1].trip) || 0;
+        const tripB = parseInt(b[1].trip) || 0;
+        return tripA - tripB;
     });
-    tableHTML += '</div>';
-    tableHTML += '<table><thead><tr><th>Вагон</th><th>Рейс</th><th>Остановка</th><th>Время</th><th>Направление</th></tr></thead><tbody>';
+    
+    // Создаём вкладки по маршрутам
+    let tabsHTML = '<div class="tabs-container">';
+    tabsHTML += '<div class="tabs-header">';
+    tabsHTML += '<button class="tab-btn active" onclick="filterByTram(\'\')">Все</button>';
+    
+    sortedTrams.forEach(([tramId, info]) => {
+        tabsHTML += '<button class="tab-btn" onclick="filterByTram(\'' + tramId + '\')">М' + info.route + ' выезд ' + info.trip + '</button>';
+    });
+    tabsHTML += '</div></div>';
+    
+    // Статистика
+    let statsHTML = '<div class="stats-box">';
+    statsHTML += '<strong>📊 Статистика:</strong><br>';
+    statsHTML += 'Всего маршрутов: ' + new Set(sortedTrams.map(t => t[1].route)).size + '<br>';
+    statsHTML += 'Всего выездов: ' + allTrams.size + '<br>';
+    statsHTML += 'Всего записей: ' + scheduleData.length + '<br><br>';
+    statsHTML += '<strong>По маршрутам:</strong><br>';
+    
+    sortedTrams.forEach(([tramId, info]) => {
+        statsHTML += 'Маршрут ' + info.route + ', выезд ' + info.trip + ': ' + info.tripsCount + ' рейсов<br>';
+    });
+    statsHTML += '</div>';
+    
+    // Таблица
+    let tableHTML = '<table id="dataTable"><thead><tr><th>Маршрут</th><th>Выезд</th><th>Рейс</th><th>Остановка</th><th>Время</th><th>Направление</th></tr></thead><tbody>';
     
     scheduleData.sort((a, b) => {
-        if (a.tramId !== b.tramId) return a.tramId.localeCompare(b.tramId);
+        const routeA = parseInt(a.routeNumber) || 0;
+        const routeB = parseInt(b.routeNumber) || 0;
+        if (routeA !== routeB) return routeA - routeB;
+        const tripA = parseInt(a.tripNumber) || 0;
+        const tripB = parseInt(b.tripNumber) || 0;
+        if (tripA !== tripB) return tripA - tripB;
         return a.time.totalMinutes - b.time.totalMinutes;
     }).forEach(record => {
         const tripNum = record.tripId.split('-trip')[1] || '-';
-        const bgColor = record.isBreak ? ' style="background:#fff3cd;"' : '';
-        tableHTML += '<tr' + bgColor + '><td>' + record.tramId + '</td><td>' + tripNum + '</td><td>' + record.stop + '</td><td>' + record.timeStr + '</td><td>' + record.direction + '</td></tr>';
+        const bgColor = record.isBreak ? ' class="break-row"' : '';
+        tableHTML += '<tr' + bgColor + ' data-tram="' + record.tramId + '">';
+        tableHTML += '<td>' + record.routeNumber + '</td>';
+        tableHTML += '<td>' + record.tripNumber + '</td>';
+        tableHTML += '<td>' + tripNum + '</td>';
+        tableHTML += '<td>' + record.stop + '</td>';
+        tableHTML += '<td>' + record.timeStr + '</td>';
+        tableHTML += '<td>' + record.direction + '</td>';
+        tableHTML += '</tr>';
     });
-    
     tableHTML += '</tbody></table>';
-    document.getElementById('tableContainer').innerHTML = tableHTML;
     
+    document.getElementById('tableContainer').innerHTML = tabsHTML + statsHTML + tableHTML;
+    
+    // Заполняем список остановок
     const stops = Array.from(new Set(scheduleData.map(r => r.stop))).sort();
     const stopSelect = document.getElementById('stopSelect');
     stopSelect.innerHTML = '<option value="">Все остановки</option>';
@@ -314,53 +359,91 @@ function displayResults() {
     updateVisualization();
 }
 
-function updateVisualization() {
+function filterByTram(tramId) {
+    // Обновляем активную вкладку
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    
+    // Фильтруем таблицу
+    const rows = document.querySelectorAll('#dataTable tbody tr');
+    rows.forEach(row => {
+        if (tramId === '' || row.dataset.tram === tramId) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    
+    // Обновляем визуализацию
+    updateVisualization(tramId);
+}
+
+function updateVisualization(filterTramId) {
     const selectedStop = document.getElementById('stopSelect').value;
     const show4min = document.getElementById('show4min').checked;
+    
     let filtered = scheduleData;
     
+    // Фильтр по вагону (из вкладки)
+    if (filterTramId) {
+        filtered = filtered.filter(r => r.tramId === filterTramId);
+    }
+    
+    // Фильтр по остановке
     if (selectedStop) {
-        filtered = scheduleData.filter(r => r.stop === selectedStop);
+        filtered = filtered.filter(r => r.stop === selectedStop);
     }
     
     filtered.sort((a, b) => a.time.totalMinutes - b.time.totalMinutes);
+    
     let vizHTML = '';
     
-    filtered.forEach((record) => {
-        let nearby = [];
-        if (show4min && record.time) {
-            nearby = filtered.filter(r => {
-                if (r.tramId === record.tramId) return false;
-                if (!r.time) return false;
-                const diff = Math.abs(r.time.totalMinutes - record.time.totalMinutes);
-                return diff >= 0 && diff <= 4;
-            });
-        }
-        
-        const isHighlight = nearby.length > 0;
-        const tripNum = record.tripId.split('-trip')[1] || '?';
-        let cardClass = 'tram-card';
-        if (isHighlight) cardClass += ' highlight';
-        if (record.isBreak) cardClass += ' break';
-        
-        vizHTML += '<div class="' + cardClass + '">';
-        vizHTML += '<div class="tram-number">Вагон ' + record.tramId + ' (Рейс №' + tripNum + ')</div>';
-        vizHTML += '<div class="tram-time">⏰ ' + record.timeStr + ' | 📍 ' + record.stop + ' | ➡️ ' + record.direction + '</div>';
-        if (record.isBreak) {
-            vizHTML += '<div style="color:#856404; font-size:12px;">☕ Обеденный рейс</div>';
-        }
-        if (nearby.length > 0) {
-            vizHTML += '<div class="time-diff">⚠️ Рядом (±4 мин):<br>';
-            nearby.forEach(n => {
-                const diff = Math.abs(n.time.totalMinutes - record.time.totalMinutes);
-                vizHTML += '• Вагон ' + n.tramId + ' в ' + n.timeStr + ' (разница: ' + diff + ' мин)<br>';
-            });
+    if (filtered.length === 0) {
+        vizHTML = '<p>Нет данных для отображения. Выберите другой маршрут или остановку.</p>';
+    } else {
+        filtered.forEach((record) => {
+            // Ищем ДРУГИЕ вагоны в пределах ±4 минуты на ТОЙ ЖЕ остановке
+            let nearby = [];
+            if (show4min && record.time) {
+                nearby = scheduleData.filter(r => {
+                    if (r.tramId === record.tramId) return false;
+                    if (r.stop !== record.stop) return false;
+                    if (!r.time) return false;
+                    const diff = Math.abs(r.time.totalMinutes - record.time.totalMinutes);
+                    return diff >= 0 && diff <= 4;
+                });
+            }
+            
+            const isHighlight = nearby.length > 0;
+            const tripNum = record.tripId.split('-trip')[1] || '?';
+            let cardClass = 'tram-card';
+            if (isHighlight) cardClass += ' highlight';
+            if (record.isBreak) cardClass += ' break';
+            
+            vizHTML += '<div class="' + cardClass + '">';
+            vizHTML += '<div class="tram-header">';
+            vizHTML += '<span class="tram-number">Маршрут ' + record.routeNumber + '</span>';
+            vizHTML += '<span class="tram-trip">Выезд ' + record.tripNumber + ' | Рейс ' + tripNum + '</span>';
             vizHTML += '</div>';
-        }
-        vizHTML += '</div>';
-    });
+            vizHTML += '<div class="tram-time">⏰ ' + record.timeStr + ' | 📍 ' + record.stop + ' | ➡️ ' + record.direction + '</div>';
+            
+            if (record.isBreak) {
+                vizHTML += '<div class="break-label">☕ Обеденный рейс</div>';
+            }
+            
+            if (nearby.length > 0) {
+                vizHTML += '<div class="time-diff">⚠️ Рядом (±4 мин) на этой остановке:<br>';
+                nearby.forEach(n => {
+                    const diff = Math.abs(n.time.totalMinutes - record.time.totalMinutes);
+                    vizHTML += '• Маршрут ' + n.routeNumber + ' выезд ' + n.tripNumber + ' в ' + n.timeStr + ' (разница: ' + diff + ' мин)<br>';
+                });
+                vizHTML += '</div>';
+            }
+            vizHTML += '</div>';
+        });
+    }
     
-    document.getElementById('visualization').innerHTML = vizHTML || '<p>Нет данных для отображения</p>';
+    document.getElementById('visualization').innerHTML = vizHTML;
 }
 
 function showStatus(message, type) {
