@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Расписание трамваев</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Система управления расписанием трамваев</h1>
+        
+        <div class="upload-section">
+            <h2>Загрузка данных</h2>
+            <p>Загрузите файлы Excel (.xlsx, .xls) или изображения (.jpg, .png)</p>
+            
+            <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.jpg,.jpeg,.png">
+            <button onclick="processFiles()">Обработать файлы</button>
+        </div>
+
+        <div id="status" class="status"></div>
+
+        <div id="resultsSection" style="display:none;">
+            <h2>Загруженные данные</h2>
+            <div id="tableContainer"></div>
+            
+            <h2>Визуализация маршрутов</h2>
+            <div class="controls">
+                <label>Выберите остановку:
+                    <select id="stopSelect" onchange="updateVisualization()">
+                        <option value="">Все остановки</option>
+                    </select>
+                </label>
+                <label>
+                    <input type="checkbox" id="show4min" checked onchange="updateVisualization()">
+                    Показать вагоны в пределах ±4 минут
+                </label>
+            </div>
+            <div id="visualization"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.0/dist/tesseract.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
