@@ -19,7 +19,10 @@ const stopDictionary = {
     'озеро': 'Озеро',
     'куйбышева': 'Куйбышева',
     'рокоссовского': 'просп. Рокоссовского',
-    'немига': 'Немига'
+    'немига': 'Немига',
+    'красная': 'Красная',
+    'пугачёвская': 'Пугачёвская',
+    'пугачевская': 'Пугачёвская'
 };
 
 function normalizeStopName(name) {
@@ -30,7 +33,7 @@ function normalizeStopName(name) {
             return value;
         }
     }
-    if (name.length > 2) {
+    if (name.length > 2 && !name.match(/^[\d\.\:]+$/) && name !== 'Примечание') {
         return name.charAt(0).toUpperCase() + name.slice(1);
     }
     return '';
@@ -56,16 +59,16 @@ async function processFiles() {
                 await processExcelFile(file);
             }
         } catch (error) {
-            console.error('ОШИБКА обработки файла:', file.name, error);
+            console.error('ОШИБКА:', error);
             showStatus('Ошибка: ' + error.message, 'error');
         }
     }
     
     if (scheduleData.length > 0) {
-        showStatus('Успешно загружено: ' + scheduleData.length + ' записей | Выездов: ' + allTrams.size, 'success');
+        showStatus('Загружено: ' + scheduleData.length + ' записей | Выездов: ' + allTrams.size, 'success');
         displayResults();
     } else {
-        showStatus('Не удалось обработать файлы. Откройте консоль (F12) для деталей.', 'error');
+        showStatus('Не удалось обработать. Откройте консоль (F12).', 'error');
     }
 }
 
@@ -77,10 +80,10 @@ function processExcelFile(file) {
             try {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, {type: 'array'});
-                console.log('Листов в файле:', workbook.SheetNames.length);
+                console.log('Листов:', workbook.SheetNames.length, workbook.SheetNames);
                 
-                workbook.SheetNames.forEach((sheetName, index) => {
-                    console.log('\n>>> Лист ' + (index + 1) + ': "' + sheetName + '"');
+                workbook.SheetNames.forEach((sheetName) => {
+                    console.log('\n>>> Лист: "' + sheetName + '"');
                     const sheet = workbook.Sheets[sheetName];
                     const jsonData = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: '', raw: false});
                     parseScheduleData(jsonData, sheetName);
@@ -98,14 +101,20 @@ function processExcelFile(file) {
 }
 
 function parseScheduleData(data, sheetName) {
-    console.log('=== ПАРСИНГ: ' + sheetName + ' ===');
-    
     let routeNumber = '';
     let tripNumber = '';
     let headerRowIndex = -1;
     let stops = [];
     
-    // Ищем NZA X-XX в первых 15 строках — это главный источник маршрута и выезда
+    // 1. Сначала пробуем извлечь номер маршрута из НАЗВАНИЯ ЛИСТА
+    // Например: "Маршрут 1 вх" -> маршрут 1
+    const sheetRouteMatch = sheetName.match(/маршрут\s*(\d+)/i);
+    if (sheetRouteMatch) {
+        routeNumber = sheetRouteMatch[1];
+        console.log('✓ Маршрут из названия листа: ' + routeNumber);
+    }
+    
+    // 2. Ищем NZA X-XX для получения номера выезда
     for (let i = 0; i < Math.min(15, data.length); i++) {
         const row = data[i];
         if (!row || row.length === 0) continue;
@@ -113,36 +122,24 @@ function parseScheduleData(data, sheetName) {
         for (let j = 0; j < row.length; j++) {
             const cellText = String(row[j]).trim();
             
-            // Ищем NZA 6-01, NZA 1-02 и т.д.
             const nzaMatch = cellText.match(/NZA\s*(\d+)-(\d+)/i);
             if (nzaMatch) {
-                routeNumber = nzaMatch[1];
+                if (!routeNumber) routeNumber = nzaMatch[1];
                 tripNumber = nzaMatch[2];
-                console.log('✓ Найден NZA: маршрут ' + routeNumber + ', выезд ' + tripNumber);
+                console.log('✓ NZA: выезд ' + tripNumber);
                 break;
             }
         }
-        if (routeNumber) break;
+        if (tripNumber) break;
     }
     
-    // Если NZA не найден, ищем "Расписание маршрута: X"
-    if (!routeNumber) {
-        for (let i = 0; i < Math.min(15, data.length); i++) {
-            const row = data[i];
-            if (!row || row.length === 0) continue;
-            const rowText = row.join(' ');
-            
-            const routeMatch = rowText.match(/маршрут[:\s]*(\d+)/i);
-            if (routeMatch) {
-                routeNumber = routeMatch[1];
-                tripNumber = '01';
-                console.log('✓ Найден маршрут из текста: ' + routeNumber);
-                break;
-            }
-        }
+    // 3. Если выезд не найден, ставим "01" по умолчанию
+    if (!tripNumber) {
+        tripNumber = '01';
+        console.log('⚠ Выезд не найден, используем 01');
     }
     
-    // Ищем строку с остановками
+    // 4. Ищем строку с остановками
     for (let i = 0; i < Math.min(20, data.length); i++) {
         const row = data[i];
         if (!row || row.length === 0) continue;
@@ -150,7 +147,7 @@ function parseScheduleData(data, sheetName) {
         let textCellCount = 0;
         row.forEach(cell => {
             const cellStr = String(cell).trim();
-            if (cellStr.length > 2 && !cellStr.match(/^\d/) && cellStr !== '.....' && cellStr !== 'NZA') {
+            if (cellStr.length > 2 && !cellStr.match(/^\d/) && cellStr !== '.....') {
                 textCellCount++;
             }
         });
@@ -158,17 +155,17 @@ function parseScheduleData(data, sheetName) {
         if (textCellCount >= 6) {
             headerRowIndex = i;
             stops = row.map(s => normalizeStopName(String(s).trim())).filter(s => s && s.length > 1);
-            console.log('✓ Остановки (строка ' + i + '): ' + stops.length + ' шт.');
+            console.log('✓ Остановки: ' + stops.length + ' шт.');
             break;
         }
     }
     
     if (!routeNumber) {
-        console.warn('⚠ НЕ НАЙДЕН номер маршрута в ' + sheetName);
+        console.error('✗ НЕ НАЙДЕН маршрут');
         return;
     }
     if (headerRowIndex === -1) {
-        console.error('✗ НЕ НАЙДЕНА строка с остановками в ' + sheetName);
+        console.error('✗ НЕ НАЙДЕНЫ остановки');
         return;
     }
     
@@ -182,9 +179,26 @@ function parseScheduleData(data, sheetName) {
         if (!row || row.length < 2) continue;
         const rowText = row.join(' ').toLowerCase();
         
+        // Проверяем, есть ли новый NZA (новый выезд на этом же листе)
+        let newTripNumber = null;
+        for (let j = 0; j < row.length; j++) {
+            const cellText = String(row[j]).trim();
+            const nzaMatch = cellText.match(/NZA\s*(\d+)-(\d+)/i);
+            if (nzaMatch) {
+                newTripNumber = nzaMatch[2];
+                break;
+            }
+        }
+        
+        if (newTripNumber && newTripNumber !== tripNumber) {
+            tripNumber = newTripNumber;
+            console.log('>>> Новый выезд: ' + tripNumber);
+        }
+        
         if (rowText.includes('выезд') || rowText.includes('заезд') || 
             rowText.includes('начало') || rowText.includes('конец') ||
-            rowText.includes('действительно') || rowText.includes('смена')) {
+            rowText.includes('действительно') || rowText.includes('смена') ||
+            rowText.includes('трамвайный парк')) {
             continue;
         }
         
@@ -193,6 +207,7 @@ function parseScheduleData(data, sheetName) {
         
         const isBreak = rowText.includes('обед');
         const times = [];
+        const currentTramId = routeNumber + '-' + tripNumber;
         
         row.forEach((cell, colIndex) => {
             const cellStr = String(cell).trim();
@@ -217,7 +232,7 @@ function parseScheduleData(data, sheetName) {
                 const timeObj = parseTime(t.time);
                 if (timeObj && t.stop) {
                     scheduleData.push({
-                        tramId: tramId,
+                        tramId: currentTramId,
                         routeNumber: routeNumber,
                         tripNumber: tripNumber,
                         stop: t.stop,
@@ -229,22 +244,19 @@ function parseScheduleData(data, sheetName) {
                     totalRecords++;
                 }
             });
+            
+            if (!allTrams.has(currentTramId)) {
+                allTrams.set(currentTramId, {
+                    route: routeNumber,
+                    trip: tripNumber,
+                    recordsCount: 0
+                });
+            }
+            allTrams.get(currentTramId).recordsCount++;
         }
     }
     
     console.log('✓ Записей: ' + totalRecords);
-    
-    if (totalRecords > 0) {
-        if (!allTrams.has(tramId)) {
-            allTrams.set(tramId, {
-                route: routeNumber,
-                trip: tripNumber,
-                recordsCount: totalRecords
-            });
-        } else {
-            allTrams.get(tramId).recordsCount += totalRecords;
-        }
-    }
 }
 
 function parseTime(timeStr) {
@@ -327,13 +339,8 @@ function filterByTram(tramId) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     event.target.classList.add('active');
     
-    const rows = document.querySelectorAll('#dataTable tbody tr');
-    rows.forEach(row => {
-        if (tramId === '' || row.dataset.tram === tramId) {
-            row.style.display = '';
-        } else {
-            row.style.display = 'none';
-        }
+    document.querySelectorAll('#dataTable tbody tr').forEach(row => {
+        row.style.display = (tramId === '' || row.dataset.tram === tramId) ? '' : 'none';
     });
     
     updateVisualization(tramId);
@@ -344,13 +351,8 @@ function updateVisualization(filterTramId) {
     const show4min = document.getElementById('show4min').checked;
     
     let filtered = scheduleData;
-    
-    if (filterTramId) {
-        filtered = filtered.filter(r => r.tramId === filterTramId);
-    }
-    if (selectedStop) {
-        filtered = filtered.filter(r => r.stop === selectedStop);
-    }
+    if (filterTramId) filtered = filtered.filter(r => r.tramId === filterTramId);
+    if (selectedStop) filtered = filtered.filter(r => r.stop === selectedStop);
     
     filtered.sort((a, b) => a.time.totalMinutes - b.time.totalMinutes);
     
@@ -366,14 +368,12 @@ function updateVisualization(filterTramId) {
                     if (r.tramId === record.tramId) return false;
                     if (r.stop !== record.stop) return false;
                     if (!r.time) return false;
-                    const diff = Math.abs(r.time.totalMinutes - record.time.totalMinutes);
-                    return diff <= 4;
+                    return Math.abs(r.time.totalMinutes - record.time.totalMinutes) <= 4;
                 });
             }
             
-            const isHighlight = nearby.length > 0;
             let cardClass = 'tram-card';
-            if (isHighlight) cardClass += ' highlight';
+            if (nearby.length > 0) cardClass += ' highlight';
             if (record.isBreak) cardClass += ' break';
             
             vizHTML += '<div class="' + cardClass + '">';
@@ -383,9 +383,7 @@ function updateVisualization(filterTramId) {
             vizHTML += '</div>';
             vizHTML += '<div class="tram-time">⏰ ' + record.timeStr + ' | 📍 ' + record.stop + ' | ➡️ ' + record.direction + '</div>';
             
-            if (record.isBreak) {
-                vizHTML += '<div class="break-label">☕ Обед</div>';
-            }
+            if (record.isBreak) vizHTML += '<div class="break-label">☕ Обед</div>';
             
             if (nearby.length > 0) {
                 vizHTML += '<div class="time-diff">⚠️ Рядом (±4 мин):<br>';
