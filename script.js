@@ -311,4 +311,107 @@ function parseTime(timeStr) {
     if (match) {
         return {
             hours: parseInt(match[1]),
-            minutes: 
+            minutes: parseInt(match[2]),
+            totalMinutes: parseInt(match[1]) * 60 + parseInt(match[2])
+        };
+    }
+    
+    return null;
+}
+
+function displayResults() {
+    document.getElementById('resultsSection').style.display = 'block';
+    
+    let tableHTML = `
+        <div style="margin-bottom: 20px; padding: 15px; background: #e7f3ff; border-radius: 5px;">
+            <strong>Загружено вагонов:</strong> ${allTrams.size}<br>
+            ${Array.from(allTrams.entries()).map(([id, info]) => 
+                `Маршрут ${info.route}, выезд ${info.trip}: ${info.tripsCount} рейсов`
+            ).join('<br>')}
+        </div>
+    `;
+    
+    tableHTML += '<table><thead><tr><th>Вагон</th><th>Рейс</th><th>Остановка</th><th>Время</th><th>Направление</th></tr></thead><tbody>';
+    
+    scheduleData
+        .sort((a, b) => {
+            if (a.tramId !== b.tramId) return a.tramId.localeCompare(b.tramId);
+            return a.time.totalMinutes - b.time.totalMinutes;
+        })
+        .forEach(record => {
+            tableHTML += `<tr ${record.isBreak ? 'style="background:#fff3cd;"' : ''}>
+                <td>${record.tramId}</td>
+                <td>${record.tripId.split('-trip')[1] || '-'}</td>
+                <td>${record.stop}</td>
+                <td>${record.timeStr}</td>
+                <td>${record.direction}</td>
+            </tr>`;
+        });
+    
+    tableHTML += '</tbody></table>';
+    document.getElementById('tableContainer').innerHTML = tableHTML;
+    
+    const stops = [...new Set(scheduleData.map(r => r.stop))].sort();
+    const stopSelect = document.getElementById('stopSelect');
+    stopSelect.innerHTML = '<option value="">Все остановки</option>';
+    stops.forEach(stop => {
+        stopSelect.innerHTML += `<option value="${stop}">${stop}</option>`;
+    });
+    
+    updateVisualization();
+}
+
+function updateVisualization() {
+    const selectedStop = document.getElementById('stopSelect').value;
+    const show4min = document.getElementById('show4min').checked;
+    
+    let filtered = scheduleData;
+    if (selectedStop) {
+        filtered = scheduleData.filter(r => r.stop === selectedStop);
+    }
+    
+    filtered.sort((a, b) => a.time.totalMinutes - b.time.totalMinutes);
+    
+    let vizHTML = '';
+    
+    filtered.forEach((record, index) => {
+        let nearby = [];
+        if (show4min && record.time) {
+            nearby = filtered.filter(r => {
+                if (r.tramId === record.tramId) return false;
+                if (!r.time) return false;
+                
+                const diff = Math.abs(r.time.totalMinutes - record.time.totalMinutes);
+                return diff >= 0 && diff <= 4;
+            });
+        }
+        
+        const isHighlight = nearby.length > 0;
+        
+        vizHTML += `
+            <div class="tram-card ${isHighlight ? 'highlight' : ''} ${record.isBreak ? 'break' : ''}">
+                <div class="tram-number">Вагон ${record.tramId} (Рейс №${record.tripId.split('-trip')[1] || '?'})</div>
+                <div class="tram-time">
+                    ⏰ ${record.timeStr} | 
+                    📍 ${record.stop} | 
+                    ➡️ ${record.direction}
+                </div>
+                ${record.isBreak ? '<div style="color:#856404; font-size:12px;">☕ Обеденный рейс</div>' : ''}
+                ${nearby.length > 0 ? `
+                    <div class="time-diff">
+                        ⚠️ Рядом (±4 мин):<br>
+                        ${nearby.map(n => `• Вагон ${n.tramId} в ${n.timeStr} (разница: ${Math.abs(n.time.totalMinutes - record.time.totalMinutes)} мин)`).join('<br>')}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    });
+    
+    document.getElementById('visualization').innerHTML = vizHTML || '<p>Нет данных для отображения</p>';
+}
+
+function showStatus(message, type) {
+    const status = document.getElementById('status');
+    status.textContent = message;
+    status.className = `status ${type}`;
+}
