@@ -193,3 +193,73 @@ select {
     font-weight: 600;
     font-size: 14px;
 }
+/* Вкладки */
+.tabs-container {
+    margin-bottom: 20px;
+}
+
+.tabs-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 10px;
+    background: #f0f0f0;
+    border-radius: 10px;
+}
+
+.tab-btn {
+    padding: 8px 16px;
+    border: none;
+    background: white;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s;
+}
+
+.tab-btn:hover {
+    background: #667eea;
+    color: white;
+}
+
+.tab-btn.active {
+    background: #667eea;
+    color: white;
+    font-weight: bold;
+}
+
+/* Статистика */
+.stats-box {
+    background: #e7f3ff;
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    line-height: 1.6;
+}
+
+/* Строки таблицы */
+.break-row {
+    background: #fff3cd !important;
+}
+
+/* Карточки */
+.tram-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.tram-trip {
+    font-size: 12px;
+    color: #666;
+    background: #f0f0f0;
+    padding: 3px 8px;
+    border-radius: 3px;
+}
+
+.break-label {
+    color: #856404;
+    font-size: 12px;
+    margin-top: 5px;
+}
